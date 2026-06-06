@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { api } from '../api'
 
 function StatusBadge({ status }) {
   const styles = {
@@ -71,9 +72,9 @@ export default function Tasks() {
   const loadData = () => {
     setLoading(true)
     Promise.all([
-      fetch('/api/tasks').then(r => r.json()),
-      fetch('/api/projects').then(r => r.json()),
-      fetch('/api/members').then(r => r.json()),
+      api('/api/tasks').then(r => r.json()),
+      api('/api/projects').then(r => r.json()),
+      api('/api/members').then(r => r.json()),
     ]).then(([t, p, m]) => {
       setTasks(t); setProjects(p); setMembers(m); setLoading(false)
     }).catch(() => setLoading(false))
@@ -118,7 +119,7 @@ export default function Tasks() {
         project_id: Number(form.project_id),
         assigned_to: form.assigned_to ? Number(form.assigned_to) : null,
       }
-      const res = await fetch(url, {
+      const res = await api(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -130,7 +131,7 @@ export default function Tasks() {
   }
 
   const handleDelete = async (id) => {
-    await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+    await api(`/api/tasks/${id}`, { method: 'DELETE' })
     setDeleteConfirm(null)
     loadData()
   }

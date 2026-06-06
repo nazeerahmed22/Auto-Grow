@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { api } from '../api'
 
 function StatusBadge({ status }) {
   const styles = {
@@ -62,7 +63,7 @@ export default function Projects() {
 
   const loadProjects = () => {
     setLoading(true)
-    fetch('/api/projects')
+    api('/api/projects')
       .then(r => r.json())
       .then(d => { setProjects(d); setLoading(false) })
       .catch(() => setLoading(false))
@@ -100,7 +101,7 @@ export default function Projects() {
     try {
       const url = editProject ? `/api/projects/${editProject.id}` : '/api/projects'
       const method = editProject ? 'PUT' : 'POST'
-      const res = await fetch(url, {
+      const res = await api(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
@@ -115,7 +116,7 @@ export default function Projects() {
   }
 
   const handleDelete = async (id) => {
-    await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+    await api(`/api/projects/${id}`, { method: 'DELETE' })
     setDeleteConfirm(null)
     loadProjects()
   }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { api } from '../api'
 
 function Modal({ onClose, onSubmit, initial }) {
   const [form, setForm] = useState(initial || { name: '', email: '', role: 'Developer', avatar_color: '#6366f1' })
@@ -45,12 +46,12 @@ export default function Members() {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
 
-  const load = () => fetch('/api/members').then(r => r.json()).then(d => { setMembers(d); setLoading(false) })
+  const load = () => api('/api/members').then(r => r.json()).then(d => { setMembers(d); setLoading(false) })
   useEffect(() => { load() }, [])
 
   const save = async (form) => {
     const isEdit = modal.member?.id
-    await fetch(isEdit ? `/api/members/${modal.member.id}` : '/api/members', {
+    await api(isEdit ? `/api/members/${modal.member.id}` : '/api/members', {
       method: isEdit ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form)
@@ -61,7 +62,7 @@ export default function Members() {
 
   const del = async (id) => {
     if (!confirm('Delete this member?')) return
-    await fetch(`/api/members/${id}`, { method: 'DELETE' })
+    await api(`/api/members/${id}`, { method: 'DELETE' })
     load()
   }
 

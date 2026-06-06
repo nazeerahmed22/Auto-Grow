@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { api } from '../api'
 
 function Modal({ open, onClose, title, children }) {
   if (!open) return null
@@ -235,7 +236,7 @@ export default function Reports() {
 
   const loadReports = () => {
     setLoading(true)
-    fetch('/api/reports')
+    api('/api/reports')
       .then(r => r.json())
       .then(d => { setReports(d); setLoading(false) })
       .catch(() => setLoading(false))
@@ -246,7 +247,7 @@ export default function Reports() {
   const handleGenerate = async () => {
     setGenerating(true)
     try {
-      const res = await fetch('/api/reports/generate', {
+      const res = await api('/api/reports/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: generateType })
@@ -269,7 +270,7 @@ export default function Reports() {
     }
     setLoadingDetail(true)
     try {
-      const res = await fetch(`/api/reports/${report.id}`)
+      const res = await api(`/api/reports/${report.id}`)
       const data = await res.json()
       setReportDetail(data)
     } finally {
@@ -278,7 +279,7 @@ export default function Reports() {
   }
 
   const handleDelete = async (id) => {
-    await fetch(`/api/reports/${id}`, { method: 'DELETE' })
+    await api(`/api/reports/${id}`, { method: 'DELETE' })
     setDeleteConfirm(null)
     setSelectedReport(null)
     loadReports()
