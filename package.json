@@ -1,0 +1,10 @@
+{
+  "name": "auto-grow",
+  "version": "1.0.0",
+  "description": "Auto-Grow SaaS Project Management with Auto Reporting",
+  "scripts": {
+    "backend": "cd backend && npm start",
+    "frontend": "cd frontend && npm run dev",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install"
+  }
+}
