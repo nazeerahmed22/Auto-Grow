@@ -23,7 +23,17 @@ const projectsRouter = require('./routes/projects');
 const tasksRouter = require('./routes/tasks');
 const membersRouter = require('./routes/members');
 const { router: reportsRouter, generateReportData } = require('./routes/reports');
+const authRouter = require('./routes/auth');
+const adminRouter = require('./routes/admin');
+const notificationsRouter = require('./routes/notifications');
+const commentsRouter = require('./routes/comments');
+const activityRouter = require('./routes/activity');
 
+app.use('/api/auth', authRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/comments', commentsRouter);
+app.use('/api/activity', activityRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/members', membersRouter);
@@ -38,6 +48,7 @@ app.get('/api/dashboard', (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const projects = db.getAll('projects');
     const tasks = db.getAll('tasks');
+    const users = db.getAll('users');
     const members = db.getAll('members');
 
     const projectStats = {
@@ -55,7 +66,7 @@ app.get('/api/dashboard', (req, res) => {
       overdue: tasks.filter(t => t.due_date && t.due_date < today && t.status !== 'done').length,
     };
 
-    const memberStats = { total: members.length };
+    const memberStats = { total: users.filter(u => u.role === 'member').length };
 
     const recentProjects = projects
       .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
@@ -70,11 +81,20 @@ app.get('/api/dashboard', (req, res) => {
       .slice(0, 5)
       .map(t => {
         const p = projects.find(p => p.id === t.project_id);
-        const m = members.find(m => m.id === t.assigned_to);
-        return { ...t, project_name: p?.name || null, assignee_name: m?.name || null, assignee_color: m?.avatar_color || null };
+        const u = users.find(u => u.id === t.assigned_to);
+        return { ...t, project_name: p?.name || null, assignee_name: u?.name || null, assignee_color: u?.avatar_color || null };
       });
 
-    res.json({ projects: projectStats, tasks: taskStats, members: memberStats, recent_projects: recentProjects, recent_tasks: recentTasks });
+    const recentActivities = db.getAll('activities')
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 10)
+      .map(a => {
+        const u = users.find(u => u.id === a.user_id);
+        const p = projects.find(p => p.id === a.project_id);
+        return { ...a, user_name: u?.name || 'Unknown', user_color: u?.avatar_color || '#6366f1', project_name: p?.name || null };
+      });
+
+    res.json({ projects: projectStats, tasks: taskStats, members: memberStats, recent_projects: recentProjects, recent_tasks: recentTasks, recent_activities: recentActivities });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -89,6 +109,57 @@ function saveReport(type) {
     console.error(`[CRON] Failed to generate ${type} report:`, err.message);
   }
 }
+
+// Recurring task cron: create new instances of repeat tasks daily
+cron.schedule('0 6 * * *', () => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const tasks = db.getAll('tasks').filter(t => t.repeat && t.repeat !== 'none' && t.status === 'done');
+    tasks.forEach(task => {
+      if (!task.due_date) return;
+      const due = new Date(task.due_date);
+      const now = new Date();
+      let nextDue = null;
+      if (task.repeat === 'daily') {
+        nextDue = new Date(now);
+        nextDue.setDate(nextDue.getDate() + 1);
+      } else if (task.repeat === 'weekly') {
+        nextDue = new Date(due);
+        while (nextDue <= now) nextDue.setDate(nextDue.getDate() + 7);
+      } else if (task.repeat === 'monthly') {
+        nextDue = new Date(due);
+        while (nextDue <= now) nextDue.setMonth(nextDue.getMonth() + 1);
+      }
+      if (nextDue) {
+        const nextDateStr = nextDue.toISOString().split('T')[0];
+        const alreadyExists = db.getAll('tasks').some(t =>
+          t.title === task.title && t.project_id === task.project_id && t.due_date === nextDateStr
+        );
+        if (!alreadyExists) {
+          db.insert('tasks', {
+            project_id: task.project_id,
+            title: task.title,
+            description: task.description,
+            status: 'todo',
+            priority: task.priority,
+            assigned_to: task.assigned_to,
+            due_date: nextDateStr,
+            repeat: task.repeat,
+            notify_assignee: task.notify_assignee,
+            notify_creator: task.notify_creator,
+            creator_id: task.creator_id,
+            watchers: task.watchers || [],
+            attachments: [],
+            checklist: [],
+          });
+          console.log(`[CRON] Created recurring task: ${task.title}`);
+        }
+      }
+    });
+  } catch (err) {
+    console.error('[CRON] Recurring task error:', err.message);
+  }
+});
 
 cron.schedule('0 0 * * *', () => saveReport('daily'));
 cron.schedule('0 0 * * 0', () => saveReport('weekly'));

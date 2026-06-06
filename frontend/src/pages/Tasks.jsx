@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
+import TaskDetailModal from '../components/TaskDetailModal'
 
 function StatusBadge({ status }) {
   const styles = {
@@ -48,7 +49,7 @@ function Modal({ open, onClose, title, children }) {
   )
 }
 
-const emptyForm = { project_id: '', title: '', description: '', status: 'todo', priority: 'medium', assigned_to: '', due_date: '' }
+const emptyForm = { project_id: '', title: '', description: '', status: 'todo', priority: 'medium', assigned_to: '', due_date: '', repeat: 'none' }
 
 function isOverdue(task) {
   if (!task.due_date || task.status === 'done') return false
@@ -58,7 +59,7 @@ function isOverdue(task) {
 export default function Tasks() {
   const [tasks, setTasks] = useState([])
   const [projects, setProjects] = useState([])
-  const [members, setMembers] = useState([])
+  const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editTask, setEditTask] = useState(null)
@@ -68,15 +69,16 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [projectFilter, setProjectFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [detailTaskId, setDetailTaskId] = useState(null)
 
   const loadData = () => {
     setLoading(true)
     Promise.all([
       api('/api/tasks').then(r => r.json()),
       api('/api/projects').then(r => r.json()),
-      api('/api/members').then(r => r.json()),
-    ]).then(([t, p, m]) => {
-      setTasks(t); setProjects(p); setMembers(m); setLoading(false)
+      api('/api/admin/users').then(r => r.json()).catch(() => []),
+    ]).then(([t, p, u]) => {
+      setTasks(t); setProjects(p); setUsers(Array.isArray(u) ? u : []); setLoading(false)
     }).catch(() => setLoading(false))
   }
 
@@ -88,7 +90,8 @@ export default function Tasks() {
     setModalOpen(true)
   }
 
-  const openEdit = (task) => {
+  const openEdit = (task, e) => {
+    if (e) { e.stopPropagation() }
     setEditTask(task)
     setForm({
       project_id: String(task.project_id),
@@ -97,7 +100,8 @@ export default function Tasks() {
       status: task.status,
       priority: task.priority,
       assigned_to: task.assigned_to ? String(task.assigned_to) : '',
-      due_date: task.due_date || ''
+      due_date: task.due_date || '',
+      repeat: task.repeat || 'none',
     })
     setModalOpen(true)
   }
@@ -121,7 +125,6 @@ export default function Tasks() {
       }
       const res = await api(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
       if (res.ok) { closeModal(); loadData() }
@@ -130,7 +133,8 @@ export default function Tasks() {
     }
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, e) => {
+    if (e) e.stopPropagation()
     await api(`/api/tasks/${id}`, { method: 'DELETE' })
     setDeleteConfirm(null)
     loadData()
@@ -246,13 +250,20 @@ export default function Tasks() {
                 {filtered.map(task => {
                   const overdue = isOverdue(task)
                   return (
-                    <tr key={task.id} className={`hover:bg-slate-50 transition-colors ${overdue ? 'bg-red-50/30' : ''}`}>
+                    <tr
+                      key={task.id}
+                      className={`hover:bg-slate-50 transition-colors cursor-pointer ${overdue ? 'bg-red-50/30' : ''}`}
+                      onClick={() => setDetailTaskId(task.id)}
+                    >
                       <td className="px-6 py-4 max-w-xs">
                         <div>
-                          <div className="font-medium text-slate-800 text-sm flex items-center gap-2">
+                          <div className="font-medium text-slate-800 text-sm flex items-center gap-2 flex-wrap">
                             {task.title}
                             {overdue && (
                               <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">Overdue</span>
+                            )}
+                            {task.repeat && task.repeat !== 'none' && (
+                              <span className="text-xs bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded font-medium capitalize">🔄 {task.repeat}</span>
                             )}
                           </div>
                           {task.description && (
@@ -284,9 +295,9 @@ export default function Tasks() {
                         ) : <span className="text-slate-400">—</span>}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex justify-end gap-1">
+                        <div className="flex justify-end gap-1" onClick={e => e.stopPropagation()}>
                           <button
-                            onClick={() => openEdit(task)}
+                            onClick={(e) => openEdit(task, e)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -294,7 +305,7 @@ export default function Tasks() {
                             </svg>
                           </button>
                           <button
-                            onClick={() => setDeleteConfirm(task)}
+                            onClick={(e) => { e.stopPropagation(); setDeleteConfirm(task) }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -317,45 +328,29 @@ export default function Tasks() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Project *</label>
-            <select
-              required
-              value={form.project_id}
-              onChange={e => setForm({ ...form, project_id: e.target.value })}
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
+            <select required value={form.project_id} onChange={e => setForm({ ...form, project_id: e.target.value })}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
               <option value="">Select a project</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Task Title *</label>
-            <input
-              type="text"
-              required
-              value={form.title}
-              onChange={e => setForm({ ...form, title: e.target.value })}
+            <input type="text" required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
               className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Enter task title"
-            />
+              placeholder="Enter task title" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Description</label>
-            <textarea
-              value={form.description}
-              onChange={e => setForm({ ...form, description: e.target.value })}
-              rows={2}
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              placeholder="Task description..."
-            />
+            <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+              rows={2} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              placeholder="Task description..." />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Status</label>
-              <select
-                value={form.status}
-                onChange={e => setForm({ ...form, status: e.target.value })}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
+              <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="todo">To Do</option>
                 <option value="in-progress">In Progress</option>
                 <option value="done">Done</option>
@@ -363,11 +358,8 @@ export default function Tasks() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Priority</label>
-              <select
-                value={form.priority}
-                onChange={e => setForm({ ...form, priority: e.target.value })}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
+              <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
@@ -377,24 +369,27 @@ export default function Tasks() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Assign To</label>
-              <select
-                value={form.assigned_to}
-                onChange={e => setForm({ ...form, assigned_to: e.target.value })}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
+              <select value={form.assigned_to} onChange={e => setForm({ ...form, assigned_to: e.target.value })}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="">Unassigned</option>
-                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Due Date</label>
-              <input
-                type="date"
-                value={form.due_date}
-                onChange={e => setForm({ ...form, due_date: e.target.value })}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Repeat</label>
+            <select value={form.repeat} onChange={e => setForm({ ...form, repeat: e.target.value })}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="none">No Repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={closeModal} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50">
@@ -419,10 +414,21 @@ export default function Tasks() {
           <p className="text-slate-400 text-sm mt-1">This action cannot be undone.</p>
           <div className="flex gap-3 mt-5">
             <button onClick={() => setDeleteConfirm(null)} className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50">Cancel</button>
-            <button onClick={() => handleDelete(deleteConfirm.id)} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700">Delete</button>
+            <button onClick={(e) => handleDelete(deleteConfirm.id, e)} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700">Delete</button>
           </div>
         </div>
       </Modal>
+
+      {/* Task Detail Modal */}
+      {detailTaskId && (
+        <TaskDetailModal
+          taskId={detailTaskId}
+          onClose={() => setDetailTaskId(null)}
+          onUpdated={loadData}
+          projects={projects}
+          users={users}
+        />
+      )}
     </div>
   )
 }

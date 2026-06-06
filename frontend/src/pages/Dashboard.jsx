@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import { api } from '../api'
 
 function StatCard({ title, value, subtitle, color, icon }) {
@@ -35,12 +36,8 @@ function StatusBadge({ status }) {
     'done': 'bg-emerald-100 text-emerald-700',
   }
   const labels = {
-    'active': 'Active',
-    'completed': 'Completed',
-    'on-hold': 'On Hold',
-    'todo': 'To Do',
-    'in-progress': 'In Progress',
-    'done': 'Done',
+    'active': 'Active', 'completed': 'Completed', 'on-hold': 'On Hold',
+    'todo': 'To Do', 'in-progress': 'In Progress', 'done': 'Done',
   }
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${styles[status] || 'bg-slate-100 text-slate-600'}`}>
@@ -68,10 +65,7 @@ function ProgressBar({ label, value, total, color }) {
     <div className="flex items-center gap-4">
       <span className="text-sm text-slate-600 w-24 flex-shrink-0">{label}</span>
       <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full ${color} transition-all duration-500`}
-          style={{ width: `${pct}%` }}
-        />
+        <div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-sm font-semibold text-slate-700 w-8 text-right">{value}</span>
     </div>
@@ -79,14 +73,20 @@ function ProgressBar({ label, value, total, color }) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [notifications, setNotifications] = useState([])
 
   useEffect(() => {
-    api('/api/dashboard')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
+    Promise.all([
+      api('/api/dashboard').then(r => r.json()),
+      api('/api/notifications').then(r => r.json()).catch(() => []),
+    ]).then(([d, n]) => {
+      setData(d)
+      setNotifications(Array.isArray(n) ? n.filter(x => !x.read).slice(0, 5) : [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
   }, [])
 
   if (loading) {
@@ -105,40 +105,71 @@ export default function Dashboard() {
     )
   }
 
-  const { projects, tasks, members, recent_projects, recent_tasks } = data
+  const { projects, tasks, members, recent_projects, recent_tasks, recent_activities = [] } = data
 
   return (
     <div className="space-y-6">
+      {/* Welcome */}
+      {user && (
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-5 text-white">
+          <h2 className="text-xl font-bold">Welcome back, {user.name.split(' ')[0]}! 👋</h2>
+          <p className="text-indigo-200 text-sm mt-1">Here's what's happening with your projects today.</p>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-        <StatCard
-          title="Total Projects"
-          value={projects.total}
-          subtitle={`${projects.active} active, ${projects.on_hold} on hold`}
-          color="text-indigo-600"
-          icon="📁"
-        />
-        <StatCard
-          title="Active Tasks"
-          value={tasks.in_progress}
-          subtitle={`${tasks.todo} to do, ${tasks.overdue} overdue`}
-          color="text-amber-600"
-          icon="⚡"
-        />
-        <StatCard
-          title="Completed Tasks"
-          value={tasks.done}
-          subtitle={`Out of ${tasks.total} total`}
-          color="text-emerald-600"
-          icon="✅"
-        />
-        <StatCard
-          title="Team Members"
-          value={members.total}
-          subtitle="Across all projects"
-          color="text-blue-600"
-          icon="👥"
-        />
+        <StatCard title="Total Projects" value={projects.total} subtitle={`${projects.active} active, ${projects.on_hold} on hold`} color="text-indigo-600" icon="📁" />
+        <StatCard title="Active Tasks" value={tasks.in_progress} subtitle={`${tasks.todo} to do, ${tasks.overdue} overdue`} color="text-amber-600" icon="⚡" />
+        <StatCard title="Completed Tasks" value={tasks.done} subtitle={`Out of ${tasks.total} total`} color="text-emerald-600" icon="✅" />
+        <StatCard title="Team Members" value={members.total} subtitle="Across all projects" color="text-blue-600" icon="👥" />
+      </div>
+
+      {/* Notifications + Activity */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        {/* Unread Notifications */}
+        {notifications.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-bold text-slate-800">New Notifications</h2>
+              <Link to="/notifications" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">View all →</Link>
+            </div>
+            <div className="space-y-2">
+              {notifications.map(n => (
+                <div key={n.id} className="flex gap-3 p-2 bg-indigo-50 rounded-xl">
+                  <span className="text-base flex-shrink-0">🔔</span>
+                  <div>
+                    <p className="text-sm text-slate-700 line-clamp-1">{n.message}</p>
+                    <p className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Activity */}
+        {recent_activities.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <h2 className="text-base font-bold text-slate-800 mb-4">Recent Activity</h2>
+            <div className="space-y-3">
+              {recent_activities.slice(0, 6).map(a => (
+                <div key={a.id} className="flex gap-3">
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                    style={{ backgroundColor: a.user_color || '#6366f1' }}
+                  >
+                    {a.user_name ? a.user_name[0].toUpperCase() : '?'}
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-700 line-clamp-1">{a.description}</p>
+                    <p className="text-xs text-slate-400">{new Date(a.created_at).toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Charts + Recent Projects */}
@@ -180,36 +211,16 @@ export default function Dashboard() {
               <div key={item.label} className="flex items-center gap-3">
                 <div className={`w-3 h-3 rounded-full ${item.color}`} />
                 <span className="text-sm text-slate-600 flex-1">{item.label}</span>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${item.light}`}>
-                  {item.count}
-                </span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${item.light}`}>{item.count}</span>
               </div>
             ))}
           </div>
           <div className="mt-5 pt-4 border-t border-slate-100">
             {projects.total > 0 && (
               <div className="flex gap-1 h-4 rounded-full overflow-hidden">
-                {projects.active > 0 && (
-                  <div
-                    className="bg-emerald-500"
-                    style={{ width: `${(projects.active / projects.total) * 100}%` }}
-                    title={`Active: ${projects.active}`}
-                  />
-                )}
-                {projects.on_hold > 0 && (
-                  <div
-                    className="bg-amber-500"
-                    style={{ width: `${(projects.on_hold / projects.total) * 100}%` }}
-                    title={`On Hold: ${projects.on_hold}`}
-                  />
-                )}
-                {projects.completed > 0 && (
-                  <div
-                    className="bg-blue-500"
-                    style={{ width: `${(projects.completed / projects.total) * 100}%` }}
-                    title={`Completed: ${projects.completed}`}
-                  />
-                )}
+                {projects.active > 0 && <div className="bg-emerald-500" style={{ width: `${(projects.active / projects.total) * 100}%` }} />}
+                {projects.on_hold > 0 && <div className="bg-amber-500" style={{ width: `${(projects.on_hold / projects.total) * 100}%` }} />}
+                {projects.completed > 0 && <div className="bg-blue-500" style={{ width: `${(projects.completed / projects.total) * 100}%` }} />}
               </div>
             )}
             <p className="text-xs text-slate-400 mt-2">{projects.total} total projects</p>
@@ -256,9 +267,7 @@ export default function Dashboard() {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <h2 className="text-base font-bold text-slate-800">Recent Projects</h2>
-          <Link to="/projects" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
-            View all →
-          </Link>
+          <Link to="/projects" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">View all →</Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -275,10 +284,10 @@ export default function Dashboard() {
               {recent_projects.map(project => (
                 <tr key={project.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4">
-                    <div>
+                    <Link to={`/projects/${project.id}`} className="hover:text-indigo-600 transition-colors">
                       <div className="font-medium text-slate-800 text-sm">{project.name}</div>
                       <div className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{project.description}</div>
-                    </div>
+                    </Link>
                   </td>
                   <td className="px-6 py-4"><StatusBadge status={project.status} /></td>
                   <td className="px-6 py-4"><PriorityBadge priority={project.priority} /></td>
@@ -286,10 +295,8 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2">
                       <div className="flex-1 w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         {project.total_tasks > 0 && (
-                          <div
-                            className="h-full bg-indigo-500 rounded-full"
-                            style={{ width: `${Math.round(((project.total_tasks - project.pending_count) / project.total_tasks) * 100)}%` }}
-                          />
+                          <div className="h-full bg-indigo-500 rounded-full"
+                            style={{ width: `${Math.round(((project.total_tasks - project.pending_count) / project.total_tasks) * 100)}%` }} />
                         )}
                       </div>
                       <span className="text-xs text-slate-500">{project.total_tasks - project.pending_count}/{project.total_tasks}</span>
@@ -309,9 +316,7 @@ export default function Dashboard() {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <h2 className="text-base font-bold text-slate-800">Recent Tasks</h2>
-          <Link to="/tasks" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
-            View all →
-          </Link>
+          <Link to="/tasks" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">View all →</Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -334,10 +339,8 @@ export default function Dashboard() {
                   <td className="px-6 py-4">
                     {task.assignee_name ? (
                       <div className="flex items-center gap-2">
-                        <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                          style={{ backgroundColor: task.assignee_color || '#6366f1' }}
-                        >
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                          style={{ backgroundColor: task.assignee_color || '#6366f1' }}>
                           {task.assignee_name[0]}
                         </div>
                         <span className="text-sm text-slate-600">{task.assignee_name}</span>

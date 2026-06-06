@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
 
 function StatusBadge({ status }) {
@@ -50,6 +51,31 @@ function Modal({ open, onClose, title, children }) {
 
 const emptyForm = { name: '', description: '', status: 'active', priority: 'medium', deadline: '' }
 
+function MemberAvatars({ members }) {
+  if (!members || members.length === 0) return null
+  const show = members.slice(0, 4)
+  const extra = members.length - 4
+  return (
+    <div className="flex items-center -space-x-1.5">
+      {show.map(m => (
+        <div
+          key={m.id}
+          className="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] font-bold"
+          style={{ backgroundColor: m.avatar_color || '#6366f1' }}
+          title={m.name}
+        >
+          {m.name ? m.name[0].toUpperCase() : '?'}
+        </div>
+      ))}
+      {extra > 0 && (
+        <div className="w-6 h-6 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-slate-600 text-[10px] font-bold">
+          +{extra}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Projects() {
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
@@ -77,7 +103,9 @@ export default function Projects() {
     setModalOpen(true)
   }
 
-  const openEdit = (project) => {
+  const openEdit = (project, e) => {
+    e.preventDefault()
+    e.stopPropagation()
     setEditProject(project)
     setForm({
       name: project.name,
@@ -103,7 +131,6 @@ export default function Projects() {
       const method = editProject ? 'PUT' : 'POST'
       const res = await api(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
       })
       if (res.ok) {
@@ -115,7 +142,9 @@ export default function Projects() {
     }
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, e) => {
+    e.preventDefault()
+    e.stopPropagation()
     await api(`/api/projects/${id}`, { method: 'DELETE' })
     setDeleteConfirm(null)
     loadProjects()
@@ -199,7 +228,11 @@ export default function Projects() {
               ? Math.round((project.done_count / project.total_tasks) * 100)
               : 0
             return (
-              <div key={project.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-all group">
+              <Link
+                key={project.id}
+                to={`/projects/${project.id}`}
+                className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-all group block"
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-slate-800 truncate">{project.name}</h3>
@@ -207,7 +240,7 @@ export default function Projects() {
                   </div>
                   <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      onClick={() => openEdit(project)}
+                      onClick={(e) => openEdit(project, e)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -215,7 +248,7 @@ export default function Projects() {
                       </svg>
                     </button>
                     <button
-                      onClick={() => setDeleteConfirm(project)}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteConfirm(project) }}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -244,13 +277,21 @@ export default function Projects() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-100">
-                  <span>{project.done_count}/{project.total_tasks} tasks done</span>
-                  {project.deadline && (
-                    <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
-                  )}
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <MemberAvatars members={project.members} />
+                    <span className="text-xs text-slate-400">{project.done_count}/{project.total_tasks} done</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {project.deadline && (
+                      <span className="text-xs text-slate-400">Due {new Date(project.deadline).toLocaleDateString()}</span>
+                    )}
+                    <span className="text-xs text-indigo-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                      Open →
+                    </span>
+                  </div>
                 </div>
-              </div>
+              </Link>
             )
           })}
         </div>
@@ -283,11 +324,8 @@ export default function Projects() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Status</label>
-              <select
-                value={form.status}
-                onChange={e => setForm({ ...form, status: e.target.value })}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
+              <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="active">Active</option>
                 <option value="on-hold">On Hold</option>
                 <option value="completed">Completed</option>
@@ -295,11 +333,8 @@ export default function Projects() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Priority</label>
-              <select
-                value={form.priority}
-                onChange={e => setForm({ ...form, priority: e.target.value })}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
+              <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
@@ -308,26 +343,16 @@ export default function Projects() {
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Deadline</label>
-            <input
-              type="date"
-              value={form.deadline}
-              onChange={e => setForm({ ...form, deadline: e.target.value })}
-              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <input type="date" value={form.deadline} onChange={e => setForm({ ...form, deadline: e.target.value })}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={closeModal}
-              className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors"
-            >
+            <button type="button" onClick={closeModal}
+              className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50"
-            >
+            <button type="submit" disabled={saving}
+              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50">
               {saving ? 'Saving...' : editProject ? 'Update Project' : 'Create Project'}
             </button>
           </div>
@@ -345,16 +370,12 @@ export default function Projects() {
           <p className="text-slate-700 font-medium">Delete "{deleteConfirm?.name}"?</p>
           <p className="text-slate-400 text-sm mt-1">This will also delete all tasks in this project. This action cannot be undone.</p>
           <div className="flex gap-3 mt-5">
-            <button
-              onClick={() => setDeleteConfirm(null)}
-              className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50"
-            >
+            <button onClick={() => setDeleteConfirm(null)}
+              className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50">
               Cancel
             </button>
-            <button
-              onClick={() => handleDelete(deleteConfirm.id)}
-              className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700"
-            >
+            <button onClick={(e) => handleDelete(deleteConfirm.id, e)}
+              className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700">
               Delete
             </button>
           </div>
