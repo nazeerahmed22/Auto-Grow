@@ -6,22 +6,19 @@ const db = require('./db');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
 
-// Routes
 const projectsRouter = require('./routes/projects');
 const tasksRouter = require('./routes/tasks');
 const membersRouter = require('./routes/members');
@@ -32,109 +29,72 @@ app.use('/api/tasks', tasksRouter);
 app.use('/api/members', membersRouter);
 app.use('/api/reports', reportsRouter);
 
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Dashboard summary endpoint
 app.get('/api/dashboard', (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
+    const projects = db.getAll('projects');
+    const tasks = db.getAll('tasks');
+    const members = db.getAll('members');
 
-    const projectStats = db.prepare(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'on-hold' THEN 1 ELSE 0 END) as on_hold
-      FROM projects
-    `).get();
+    const projectStats = {
+      total: projects.length,
+      active: projects.filter(p => p.status === 'active').length,
+      completed: projects.filter(p => p.status === 'completed').length,
+      on_hold: projects.filter(p => p.status === 'on-hold').length,
+    };
 
-    const taskStats = db.prepare(`
-      SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as todo,
-        SUM(CASE WHEN status = 'in-progress' THEN 1 ELSE 0 END) as in_progress,
-        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done,
-        SUM(CASE WHEN due_date < ? AND status != 'done' THEN 1 ELSE 0 END) as overdue
-      FROM tasks
-    `).get(today);
+    const taskStats = {
+      total: tasks.length,
+      todo: tasks.filter(t => t.status === 'todo').length,
+      in_progress: tasks.filter(t => t.status === 'in-progress').length,
+      done: tasks.filter(t => t.status === 'done').length,
+      overdue: tasks.filter(t => t.due_date && t.due_date < today && t.status !== 'done').length,
+    };
 
-    const memberCount = db.prepare('SELECT COUNT(*) as total FROM members').get();
+    const memberStats = { total: members.length };
 
-    const recentProjects = db.prepare(`
-      SELECT p.*,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') as pending_tasks,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as total_tasks
-      FROM projects p
-      ORDER BY p.updated_at DESC
-      LIMIT 5
-    `).all();
+    const recentProjects = projects
+      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+      .slice(0, 5)
+      .map(p => {
+        const pt = tasks.filter(t => t.project_id === p.id);
+        return { ...p, total_tasks: pt.length, done_count: pt.filter(t => t.status === 'done').length, pending_count: pt.filter(t => t.status !== 'done').length };
+      });
 
-    const recentTasks = db.prepare(`
-      SELECT t.*, p.name as project_name, m.name as assignee_name, m.avatar_color as assignee_color
-      FROM tasks t
-      LEFT JOIN projects p ON t.project_id = p.id
-      LEFT JOIN members m ON t.assigned_to = m.id
-      ORDER BY t.updated_at DESC
-      LIMIT 5
-    `).all();
+    const recentTasks = tasks
+      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+      .slice(0, 5)
+      .map(t => {
+        const p = projects.find(p => p.id === t.project_id);
+        const m = members.find(m => m.id === t.assigned_to);
+        return { ...t, project_name: p?.name || null, assignee_name: m?.name || null, assignee_color: m?.avatar_color || null };
+      });
 
-    res.json({
-      projects: projectStats,
-      tasks: taskStats,
-      members: memberCount,
-      recent_projects: recentProjects,
-      recent_tasks: recentTasks
-    });
+    res.json({ projects: projectStats, tasks: taskStats, members: memberStats, recent_projects: recentProjects, recent_tasks: recentTasks });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Cron job: Daily report at midnight
-cron.schedule('0 0 * * *', () => {
-  console.log('[CRON] Generating daily report...');
+function saveReport(type) {
   try {
-    const { title, content } = generateReportData('daily');
-    db.prepare('INSERT INTO reports (type, title, content) VALUES (?, ?, ?)').run('daily', title, JSON.stringify(content));
-    console.log('[CRON] Daily report generated successfully');
+    const { title, content } = generateReportData(type);
+    db.insert('reports', { type, title, content, generated_at: new Date().toISOString() });
+    console.log(`[CRON] ${type} report generated`);
   } catch (err) {
-    console.error('[CRON] Failed to generate daily report:', err.message);
+    console.error(`[CRON] Failed to generate ${type} report:`, err.message);
   }
-});
+}
 
-// Cron job: Weekly report every Sunday at midnight
-cron.schedule('0 0 * * 0', () => {
-  console.log('[CRON] Generating weekly report...');
-  try {
-    const { title, content } = generateReportData('weekly');
-    db.prepare('INSERT INTO reports (type, title, content) VALUES (?, ?, ?)').run('weekly', title, JSON.stringify(content));
-    console.log('[CRON] Weekly report generated successfully');
-  } catch (err) {
-    console.error('[CRON] Failed to generate weekly report:', err.message);
-  }
-});
+cron.schedule('0 0 * * *', () => saveReport('daily'));
+cron.schedule('0 0 * * 0', () => saveReport('weekly'));
+cron.schedule('0 0 1 * *', () => saveReport('monthly'));
 
-// Cron job: Monthly report on the 1st of each month at midnight
-cron.schedule('0 0 1 * *', () => {
-  console.log('[CRON] Generating monthly report...');
-  try {
-    const { title, content } = generateReportData('monthly');
-    db.prepare('INSERT INTO reports (type, title, content) VALUES (?, ?, ?)').run('monthly', title, JSON.stringify(content));
-    console.log('[CRON] Monthly report generated successfully');
-  } catch (err) {
-    console.error('[CRON] Failed to generate monthly report:', err.message);
-  }
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });
-});
-
-// Error handler
+app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.path} not found` }));
 app.use((err, req, res, next) => {
   console.error('[ERROR]', err.stack);
   res.status(500).json({ error: 'Internal server error' });

@@ -4,77 +4,58 @@ const db = require('../db');
 
 function generateReportData(type) {
   const today = new Date().toISOString().split('T')[0];
+  const projects = db.getAll('projects');
+  const tasks = db.getAll('tasks');
+  const members = db.getAll('members');
 
-  // Project stats
-  const projectStats = db.prepare(`
-    SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-      SUM(CASE WHEN status = 'on-hold' THEN 1 ELSE 0 END) as on_hold
-    FROM projects
-  `).get();
+  const projectStats = {
+    total: projects.length,
+    active: projects.filter(p => p.status === 'active').length,
+    completed: projects.filter(p => p.status === 'completed').length,
+    on_hold: projects.filter(p => p.status === 'on-hold').length,
+  };
 
-  // Task stats
-  const taskStats = db.prepare(`
-    SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as todo,
-      SUM(CASE WHEN status = 'in-progress' THEN 1 ELSE 0 END) as in_progress,
-      SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done,
-      SUM(CASE WHEN due_date < ? AND status != 'done' THEN 1 ELSE 0 END) as overdue
-    FROM tasks
-  `).get(today);
+  const taskStats = {
+    total: tasks.length,
+    todo: tasks.filter(t => t.status === 'todo').length,
+    in_progress: tasks.filter(t => t.status === 'in-progress').length,
+    done: tasks.filter(t => t.status === 'done').length,
+    overdue: tasks.filter(t => t.due_date && t.due_date < today && t.status !== 'done').length,
+  };
 
-  // Overdue tasks detail
-  const overdueTasks = db.prepare(`
-    SELECT t.id, t.title, t.due_date, t.priority, p.name as project_name, m.name as assignee_name
-    FROM tasks t
-    LEFT JOIN projects p ON t.project_id = p.id
-    LEFT JOIN members m ON t.assigned_to = m.id
-    WHERE t.due_date < ? AND t.status != 'done'
-    ORDER BY t.due_date ASC
-    LIMIT 10
-  `).all(today);
+  const overdueTasks = tasks
+    .filter(t => t.due_date && t.due_date < today && t.status !== 'done')
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+    .slice(0, 10)
+    .map(t => {
+      const p = projects.find(p => p.id === t.project_id);
+      const m = members.find(m => m.id === t.assigned_to);
+      return { id: t.id, title: t.title, due_date: t.due_date, priority: t.priority, project_name: p?.name || null, assignee_name: m?.name || null };
+    });
 
-  // Top performing members
-  const topMembers = db.prepare(`
-    SELECT m.id, m.name, m.role, m.avatar_color,
-      COUNT(CASE WHEN t.status = 'done' THEN 1 END) as tasks_done,
-      COUNT(t.id) as total_tasks
-    FROM members m
-    LEFT JOIN tasks t ON t.assigned_to = m.id
-    GROUP BY m.id
-    ORDER BY tasks_done DESC
-    LIMIT 5
-  `).all();
+  const topMembers = members.map(m => {
+    const mt = tasks.filter(t => t.assigned_to === m.id);
+    return { id: m.id, name: m.name, role: m.role, avatar_color: m.avatar_color, tasks_done: mt.filter(t => t.status === 'done').length, total_tasks: mt.length };
+  }).sort((a, b) => b.tasks_done - a.tasks_done).slice(0, 5);
 
-  // Projects with most pending tasks
-  const busyProjects = db.prepare(`
-    SELECT p.id, p.name, p.status, p.priority,
-      COUNT(CASE WHEN t.status != 'done' THEN 1 END) as pending_tasks,
-      COUNT(t.id) as total_tasks
-    FROM projects p
-    LEFT JOIN tasks t ON t.project_id = p.id
-    GROUP BY p.id
-    ORDER BY pending_tasks DESC
-    LIMIT 5
-  `).all();
+  const busyProjects = projects.map(p => {
+    const pt = tasks.filter(t => t.project_id === p.id);
+    return { id: p.id, name: p.name, status: p.status, priority: p.priority, pending_tasks: pt.filter(t => t.status !== 'done').length, total_tasks: pt.length };
+  }).sort((a, b) => b.pending_tasks - a.pending_tasks).slice(0, 5);
 
-  // High priority pending tasks
-  const highPriorityPending = db.prepare(`
-    SELECT t.id, t.title, t.status, t.due_date, p.name as project_name
-    FROM tasks t
-    LEFT JOIN projects p ON t.project_id = p.id
-    WHERE t.priority = 'high' AND t.status != 'done'
-    ORDER BY t.due_date ASC NULLS LAST
-    LIMIT 5
-  `).all();
+  const highPriorityPending = tasks
+    .filter(t => t.priority === 'high' && t.status !== 'done')
+    .sort((a, b) => (a.due_date || 'z').localeCompare(b.due_date || 'z'))
+    .slice(0, 5)
+    .map(t => {
+      const p = projects.find(p => p.id === t.project_id);
+      return { id: t.id, title: t.title, status: t.status, due_date: t.due_date, project_name: p?.name || null };
+    });
 
   const labels = {
     daily: `Daily Report - ${today}`,
     weekly: `Weekly Report - Week of ${today}`,
-    monthly: `Monthly Report - ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`
+    monthly: `Monthly Report - ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`,
   };
 
   return {
@@ -82,79 +63,52 @@ function generateReportData(type) {
     content: {
       generated_at: new Date().toISOString(),
       period: type,
-      summary: {
-        projects: projectStats,
-        tasks: taskStats
-      },
+      summary: { projects: projectStats, tasks: taskStats },
       overdue_tasks: overdueTasks,
       top_members: topMembers,
       busy_projects: busyProjects,
-      high_priority_pending: highPriorityPending
-    }
+      high_priority_pending: highPriorityPending,
+    },
   };
 }
 
-// GET all reports
 router.get('/', (req, res) => {
-  try {
-    const reports = db.prepare(`
-      SELECT id, type, title, generated_at,
-        json_extract(content, '$.summary.tasks.total') as total_tasks,
-        json_extract(content, '$.summary.projects.total') as total_projects,
-        json_extract(content, '$.summary.tasks.done') as tasks_done,
-        json_extract(content, '$.summary.tasks.overdue') as tasks_overdue
-      FROM reports
-      ORDER BY generated_at DESC
-    `).all();
-    res.json(reports);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const reports = db.getAll('reports')
+    .sort((a, b) => new Date(b.generated_at) - new Date(a.generated_at))
+    .map(r => {
+      const c = typeof r.content === 'string' ? JSON.parse(r.content) : r.content;
+      return {
+        id: r.id, type: r.type, title: r.title, generated_at: r.generated_at,
+        total_projects: c?.summary?.projects?.total || 0,
+        total_tasks: c?.summary?.tasks?.total || 0,
+        tasks_done: c?.summary?.tasks?.done || 0,
+        tasks_overdue: c?.summary?.tasks?.overdue || 0,
+      };
+    });
+  res.json(reports);
 });
 
-// GET one report
 router.get('/:id', (req, res) => {
-  try {
-    const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-    report.content = JSON.parse(report.content);
-    res.json(report);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const report = db.getById('reports', req.params.id);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  const content = typeof report.content === 'string' ? JSON.parse(report.content) : report.content;
+  res.json({ ...report, content });
 });
 
-// POST generate report
 router.post('/generate', (req, res) => {
-  try {
-    const type = req.body.type || 'daily';
-    if (!['daily', 'weekly', 'monthly'].includes(type)) {
-      return res.status(400).json({ error: 'Invalid type. Must be daily, weekly, or monthly' });
-    }
-
-    const { title, content } = generateReportData(type);
-    const result = db.prepare(`
-      INSERT INTO reports (type, title, content) VALUES (?, ?, ?)
-    `).run(type, title, JSON.stringify(content));
-
-    const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(result.lastInsertRowid);
-    report.content = JSON.parse(report.content);
-    res.status(201).json(report);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const type = req.body.type || 'daily';
+  if (!['daily', 'weekly', 'monthly'].includes(type)) {
+    return res.status(400).json({ error: 'Invalid type. Must be daily, weekly, or monthly' });
   }
+  const { title, content } = generateReportData(type);
+  const report = db.insert('reports', { type, title, content, generated_at: new Date().toISOString() });
+  res.status(201).json({ ...report, content });
 });
 
-// DELETE report
 router.delete('/:id', (req, res) => {
-  try {
-    const existing = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
-    if (!existing) return res.status(404).json({ error: 'Report not found' });
-    db.prepare('DELETE FROM reports WHERE id = ?').run(req.params.id);
-    res.json({ message: 'Report deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  if (!db.getById('reports', req.params.id)) return res.status(404).json({ error: 'Report not found' });
+  db.delete('reports', req.params.id);
+  res.json({ message: 'Report deleted successfully' });
 });
 
 module.exports = { router, generateReportData };

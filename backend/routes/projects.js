@@ -2,106 +2,77 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// GET all projects
+function withTaskCounts(project) {
+  const tasks = db.getAll('tasks').filter(t => t.project_id === project.id);
+  return {
+    ...project,
+    task_count: tasks.length,
+    total_tasks: tasks.length,
+    done_count: tasks.filter(t => t.status === 'done').length,
+    pending_count: tasks.filter(t => t.status !== 'done').length,
+  };
+}
+
 router.get('/', (req, res) => {
-  try {
-    const projects = db.prepare(`
-      SELECT p.*,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') as done_count,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') as pending_count
-      FROM projects p
-      ORDER BY p.created_at DESC
-    `).all();
-    res.json(projects);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const projects = db.getAll('projects')
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map(withTaskCounts);
+  res.json(projects);
 });
 
-// GET one project
 router.get('/:id', (req, res) => {
-  try {
-    const project = db.prepare(`
-      SELECT p.*,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') as done_count,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') as pending_count
-      FROM projects p WHERE p.id = ?
-    `).get(req.params.id);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    res.json(project);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const project = db.getById('projects', req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  res.json(withTaskCounts(project));
 });
 
-// GET project tasks
 router.get('/:id/tasks', (req, res) => {
-  try {
-    const tasks = db.prepare(`
-      SELECT t.*, m.name as assignee_name, m.avatar_color as assignee_color
-      FROM tasks t
-      LEFT JOIN members m ON t.assigned_to = m.id
-      WHERE t.project_id = ?
-      ORDER BY t.created_at DESC
-    `).all(req.params.id);
-    res.json(tasks);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const project = db.getById('projects', req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  const members = db.getAll('members');
+  const tasks = db.getAll('tasks')
+    .filter(t => t.project_id === Number(req.params.id))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map(t => {
+      const m = members.find(m => m.id === t.assigned_to) || null;
+      return { ...t, assignee_name: m?.name || null, assignee_color: m?.avatar_color || null };
+    });
+  res.json(tasks);
 });
 
-// POST create project
 router.post('/', (req, res) => {
-  try {
-    const { name, description, status, priority, deadline } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
-    const result = db.prepare(`
-      INSERT INTO projects (name, description, status, priority, deadline, updated_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
-    `).run(name, description || null, status || 'active', priority || 'medium', deadline || null);
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(result.lastInsertRowid);
-    res.status(201).json(project);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const { name, description, status, priority, deadline } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  const project = db.insert('projects', {
+    name, description: description || null,
+    status: status || 'active',
+    priority: priority || 'medium',
+    deadline: deadline || null,
+  });
+  res.status(201).json(withTaskCounts(project));
 });
 
-// PUT update project
 router.put('/:id', (req, res) => {
-  try {
-    const { name, description, status, priority, deadline } = req.body;
-    const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
-    if (!existing) return res.status(404).json({ error: 'Project not found' });
-    db.prepare(`
-      UPDATE projects SET name = ?, description = ?, status = ?, priority = ?, deadline = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      name || existing.name,
-      description !== undefined ? description : existing.description,
-      status || existing.status,
-      priority || existing.priority,
-      deadline !== undefined ? deadline : existing.deadline,
-      req.params.id
-    );
-    const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const existing = db.getById('projects', req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Project not found' });
+  const { name, description, status, priority, deadline } = req.body;
+  const updated = db.update('projects', req.params.id, {
+    name: name || existing.name,
+    description: description !== undefined ? description : existing.description,
+    status: status || existing.status,
+    priority: priority || existing.priority,
+    deadline: deadline !== undefined ? deadline : existing.deadline,
+  });
+  res.json(withTaskCounts(updated));
 });
 
-// DELETE project
 router.delete('/:id', (req, res) => {
-  try {
-    const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
-    if (!existing) return res.status(404).json({ error: 'Project not found' });
-    db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
-    res.json({ message: 'Project deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  if (!db.getById('projects', req.params.id)) return res.status(404).json({ error: 'Project not found' });
+  // cascade delete tasks
+  const tasks = db.getAll('tasks').filter(t => t.project_id === Number(req.params.id));
+  tasks.forEach(t => db.delete('tasks', t.id));
+  db.delete('projects', req.params.id);
+  res.json({ message: 'Project deleted successfully' });
 });
 
 module.exports = router;

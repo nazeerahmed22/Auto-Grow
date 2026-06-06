@@ -1,99 +1,98 @@
-const Database = require('better-sqlite3');
+const fs = require('fs');
 const path = require('path');
 
-const db = new Database(path.join(__dirname, 'autogrow.db'));
+const FILE = path.join(__dirname, 'data.json');
 
-// Enable WAL mode for better performance
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const SEED = {
+  members: [
+    { id: 1, name: 'Alice Johnson', email: 'alice@autogrow.io', role: 'Product Manager', avatar_color: '#6366f1', created_at: '2025-01-01T00:00:00.000Z' },
+    { id: 2, name: 'Bob Martinez', email: 'bob@autogrow.io', role: 'Lead Developer', avatar_color: '#10b981', created_at: '2025-01-01T00:00:00.000Z' },
+    { id: 3, name: 'Carol Smith', email: 'carol@autogrow.io', role: 'UI/UX Designer', avatar_color: '#f59e0b', created_at: '2025-01-01T00:00:00.000Z' },
+    { id: 4, name: 'David Lee', email: 'david@autogrow.io', role: 'Backend Developer', avatar_color: '#ef4444', created_at: '2025-01-01T00:00:00.000Z' },
+  ],
+  projects: [
+    { id: 1, name: 'Auto-Grow Platform', description: 'Main SaaS platform development with full feature set including dashboard, reporting, and analytics.', status: 'active', priority: 'high', deadline: '2025-03-31', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 2, name: 'Mobile App v2', description: 'Redesigned mobile application with new UI/UX patterns and offline support.', status: 'active', priority: 'high', deadline: '2025-04-15', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 3, name: 'API Integration Hub', description: 'Third-party API integrations including Slack, Jira, and GitHub connectors.', status: 'on-hold', priority: 'medium', deadline: '2025-05-01', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 4, name: 'Customer Portal', description: 'Self-service customer portal for account management and billing.', status: 'completed', priority: 'low', deadline: '2025-01-15', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+  ],
+  tasks: [
+    { id: 1, project_id: 1, title: 'Design system architecture', description: 'Define microservices, database schema, and API contracts.', status: 'done', priority: 'high', assigned_to: 2, due_date: '2025-01-10', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 2, project_id: 1, title: 'Build REST API endpoints', description: 'Implement all CRUD endpoints for projects, tasks, and members.', status: 'in-progress', priority: 'high', assigned_to: 4, due_date: '2025-02-15', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 3, project_id: 1, title: 'Implement dashboard UI', description: 'Build responsive dashboard with charts and KPI cards.', status: 'in-progress', priority: 'high', assigned_to: 3, due_date: '2025-02-20', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 4, project_id: 1, title: 'Auto reporting engine', description: 'Build the cron-based report generation system.', status: 'todo', priority: 'medium', assigned_to: 2, due_date: '2025-03-01', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 5, project_id: 2, title: 'Wireframes and prototypes', description: 'Create Figma wireframes for all app screens.', status: 'done', priority: 'high', assigned_to: 3, due_date: '2025-01-20', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 6, project_id: 2, title: 'React Native setup', description: 'Initialize RN project with navigation and state management.', status: 'done', priority: 'medium', assigned_to: 4, due_date: '2025-01-25', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 7, project_id: 2, title: 'Offline sync module', description: 'Implement offline data sync using local storage and conflict resolution.', status: 'in-progress', priority: 'high', assigned_to: 4, due_date: '2025-03-10', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 8, project_id: 3, title: 'Slack integration', description: 'Build Slack bot and webhook integration for notifications.', status: 'todo', priority: 'medium', assigned_to: 2, due_date: '2025-04-01', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 9, project_id: 3, title: 'GitHub connector', description: 'Sync GitHub issues and PRs with project tasks automatically.', status: 'todo', priority: 'medium', assigned_to: 4, due_date: '2025-04-15', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 10, project_id: 4, title: 'User authentication flow', description: 'Login, registration, and password reset pages.', status: 'done', priority: 'high', assigned_to: 3, due_date: '2025-01-05', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+    { id: 11, project_id: 4, title: 'Billing integration', description: 'Stripe payment and subscription management.', status: 'done', priority: 'high', assigned_to: 2, due_date: '2025-01-10', created_at: '2025-01-01T00:00:00.000Z', updated_at: '2025-01-01T00:00:00.000Z' },
+  ],
+  reports: [],
+  _seq: { members: 4, projects: 4, tasks: 11, reports: 0 },
+};
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS members (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    role TEXT NOT NULL DEFAULT 'Developer',
-    avatar_color TEXT NOT NULL DEFAULT '#6366f1',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
+let _store = null;
 
-  CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed', 'on-hold')),
-    priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high')),
-    deadline TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo', 'in-progress', 'done')),
-    priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high')),
-    assigned_to INTEGER,
-    due_date TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (assigned_to) REFERENCES members(id) ON DELETE SET NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT NOT NULL CHECK(type IN ('daily', 'weekly', 'monthly')),
-    title TEXT NOT NULL,
-    content TEXT NOT NULL,
-    generated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-`);
-
-// Seed data only if tables are empty
-const memberCount = db.prepare('SELECT COUNT(*) as count FROM members').get();
-if (memberCount.count === 0) {
-  const insertMember = db.prepare(`
-    INSERT INTO members (name, email, role, avatar_color) VALUES (?, ?, ?, ?)
-  `);
-  insertMember.run('Alice Johnson', 'alice@autogrow.io', 'Product Manager', '#6366f1');
-  insertMember.run('Bob Martinez', 'bob@autogrow.io', 'Lead Developer', '#10b981');
-  insertMember.run('Carol Smith', 'carol@autogrow.io', 'UI/UX Designer', '#f59e0b');
-  insertMember.run('David Lee', 'david@autogrow.io', 'Backend Developer', '#ef4444');
-
-  const insertProject = db.prepare(`
-    INSERT INTO projects (name, description, status, priority, deadline) VALUES (?, ?, ?, ?, ?)
-  `);
-  const p1 = insertProject.run('Auto-Grow Platform', 'Main SaaS platform development with full feature set including dashboard, reporting, and analytics.', 'active', 'high', '2025-03-31');
-  const p2 = insertProject.run('Mobile App v2', 'Redesigned mobile application with new UI/UX patterns and offline support.', 'active', 'high', '2025-04-15');
-  const p3 = insertProject.run('API Integration Hub', 'Third-party API integrations including Slack, Jira, and GitHub connectors.', 'on-hold', 'medium', '2025-05-01');
-  const p4 = insertProject.run('Customer Portal', 'Self-service customer portal for account management and billing.', 'completed', 'low', '2025-01-15');
-
-  const insertTask = db.prepare(`
-    INSERT INTO tasks (project_id, title, description, status, priority, assigned_to, due_date) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  // Project 1 tasks
-  insertTask.run(p1.lastInsertRowid, 'Design system architecture', 'Define microservices, database schema, and API contracts.', 'done', 'high', 2, '2025-01-10');
-  insertTask.run(p1.lastInsertRowid, 'Build REST API endpoints', 'Implement all CRUD endpoints for projects, tasks, and members.', 'in-progress', 'high', 4, '2025-02-15');
-  insertTask.run(p1.lastInsertRowid, 'Implement dashboard UI', 'Build responsive dashboard with charts and KPI cards.', 'in-progress', 'high', 3, '2025-02-20');
-  insertTask.run(p1.lastInsertRowid, 'Auto reporting engine', 'Build the cron-based report generation system.', 'todo', 'medium', 2, '2025-03-01');
-
-  // Project 2 tasks
-  insertTask.run(p2.lastInsertRowid, 'Wireframes and prototypes', 'Create Figma wireframes for all app screens.', 'done', 'high', 3, '2025-01-20');
-  insertTask.run(p2.lastInsertRowid, 'React Native setup', 'Initialize RN project with navigation and state management.', 'done', 'medium', 4, '2025-01-25');
-  insertTask.run(p2.lastInsertRowid, 'Offline sync module', 'Implement offline data sync using local storage and conflict resolution.', 'in-progress', 'high', 4, '2025-03-10');
-
-  // Project 3 tasks
-  insertTask.run(p3.lastInsertRowid, 'Slack integration', 'Build Slack bot and webhook integration for notifications.', 'todo', 'medium', 2, '2025-04-01');
-  insertTask.run(p3.lastInsertRowid, 'GitHub connector', 'Sync GitHub issues and PRs with project tasks automatically.', 'todo', 'medium', 4, '2025-04-15');
-
-  // Project 4 tasks
-  insertTask.run(p4.lastInsertRowid, 'User authentication flow', 'Login, registration, and password reset pages.', 'done', 'high', 3, '2025-01-05');
-  insertTask.run(p4.lastInsertRowid, 'Billing integration', 'Stripe payment and subscription management.', 'done', 'high', 2, '2025-01-10');
+function load() {
+  if (_store) return _store;
+  if (fs.existsSync(FILE)) {
+    try {
+      _store = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+      return _store;
+    } catch (_) {}
+  }
+  _store = JSON.parse(JSON.stringify(SEED));
+  save();
+  return _store;
 }
 
+function save() {
+  fs.writeFileSync(FILE, JSON.stringify(_store, null, 2));
+}
+
+function nextId(table) {
+  const s = load();
+  s._seq[table] = (s._seq[table] || 0) + 1;
+  return s._seq[table];
+}
+
+const db = {
+  getAll(table) { return load()[table] || []; },
+
+  getById(table, id) {
+    return (load()[table] || []).find(r => r.id === Number(id)) || null;
+  },
+
+  insert(table, data) {
+    const s = load();
+    const id = nextId(table);
+    const now = new Date().toISOString();
+    const row = { id, created_at: now, updated_at: now, ...data };
+    s[table].push(row);
+    save();
+    return row;
+  },
+
+  update(table, id, data) {
+    const s = load();
+    const idx = s[table].findIndex(r => r.id === Number(id));
+    if (idx === -1) return null;
+    s[table][idx] = { ...s[table][idx], ...data, updated_at: new Date().toISOString() };
+    save();
+    return s[table][idx];
+  },
+
+  delete(table, id) {
+    const s = load();
+    const idx = s[table].findIndex(r => r.id === Number(id));
+    if (idx === -1) return false;
+    s[table].splice(idx, 1);
+    save();
+    return true;
+  },
+};
+
+load(); // initialise on require
 module.exports = db;
